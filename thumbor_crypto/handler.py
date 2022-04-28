@@ -3,13 +3,13 @@
 # Copyright 2022
 
 import re
-from urllib.parse import unquote
-from Crypto.Cipher import AES
-import sys
 import zlib
 import base64
 import struct
 import hashlib
+from urllib.parse import unquote
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
 from typing import Any
 
@@ -22,7 +22,7 @@ from thumbor.handlers.imaging import ImagingHandler
 url_compile = re.compile(Url.regex())
 
 
-def url_decrypt(uri, key):
+def url_decrypt(uri, key, block_size=16):
     """
     Vygenerujeme inicializacni vektor z url + hesla prohnano md5
     IV neni random aby fungovala kes prohlizece...
@@ -43,19 +43,21 @@ def url_decrypt(uri, key):
 
     try:
         decoded = base64.b64decode(padding(query))
-        crypt_object = AES.new(key=key.encode(), mode=AES.MODE_CBC, IV=iv.digest())
-        decrypted = crypt_object.decrypt(decoded[:-4]).decode().rstrip("\0")
-        checksum = zlib.crc32(decrypted.encode()) & 0xffffffff
-        pack = struct.pack("=L", checksum)
-        if not decoded[-4:] == pack:
-            raise Exception("Checksum mismatch.")
+        crypto_object = AES.new(key=key.encode(), mode=AES.MODE_CBC, IV=iv.digest())
+        decrypted = crypto_object.decrypt(decoded[:-4]).rstrip(b"\0")
+        try:
+            decrypted = unpad(decrypted, block_size=block_size, style="pkcs7")
+        except:
+            pass
 
-        return decrypted
+        checksum = zlib.crc32(decrypted) & 0xffffffff
+        pack = struct.pack("=L", checksum)
+        if decoded[-4:] != pack:
+            logger.error("[Decrypt error] Checksum mismatch.")
+
+        return decrypted.decode()
     except:
-        e = sys.exc_info()[0]
-        logger.error(
-            f"[Decrypt error] Unauthorized url.\n{e}"
-        )
+        logger.error("[Decrypt error] Unauthorized url.")
 
         return None
 
