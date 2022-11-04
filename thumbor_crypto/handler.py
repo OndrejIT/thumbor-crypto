@@ -7,7 +7,7 @@ import zlib
 import base64
 import struct
 import hashlib
-from urllib.parse import unquote
+from urllib.parse import parse_qs
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
@@ -33,8 +33,14 @@ def url_decrypt(uri, key, block_size=16):
         logger.error("[Decrypt error] Unauthorized url.")
         return None
 
-    # FB query string url...
-    query = unquote(query)
+    try:
+        # Remove other query params
+        query = parse_qs(query)["th"][0]
+    except (KeyError, IndexError):
+        pass
+
+    logger.debug("[Url] " + url)
+    logger.debug("[Query] " + query)
 
     hash_me = url + key
     iv = hashlib.md5(hash_me.encode())
@@ -42,7 +48,7 @@ def url_decrypt(uri, key, block_size=16):
     padding = lambda s: s + "=" * (-len(s) % 4)
 
     try:
-        decoded = base64.b64decode(padding(query))
+        decoded = base64.urlsafe_b64decode(padding(query))
         crypto_object = AES.new(key=key.encode(), mode=AES.MODE_CBC, IV=iv.digest())
         decrypted = crypto_object.decrypt(decoded[:-4]).rstrip(b"\0")
         try:
